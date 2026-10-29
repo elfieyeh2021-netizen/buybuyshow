@@ -1,0 +1,184 @@
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>韓國旅遊待購清單</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Noto Sans TC", "PingFang TC", sans-serif;
+      max-width: 1100px;
+      margin: 40px auto;
+      padding: 0 20px;
+      color: #292524;
+      background: radial-gradient(ellipse at top left, #fff1e8 0, transparent 42%), linear-gradient(135deg, #f4f0e8, #e8edf0);
+      background-attachment: fixed;
+    }
+    h1 { color: #9f3658; letter-spacing: .04em; }
+    body > p, table {
+      background: rgba(255, 255, 255, .82);
+      border: 1px solid rgba(255, 255, 255, .75);
+      box-shadow: 0 8px 28px rgba(41, 37, 36, .07);
+    }
+    body > p { padding: 14px 18px; border-radius: 12px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 16px; border-radius: 14px; overflow: hidden; }
+    th, td { padding: 10px; border-bottom: 1px solid #e7e5e4; text-align: left; }
+    th { background: #f5f1ed; color: #57534e; font-size: .9rem; }
+    th:first-child { white-space: nowrap; }
+    input[type="text"], input[type="number"], input[type="url"], select {
+      box-sizing: border-box; width: 100%; padding: 9px; border: 1px solid #d6d3d1; border-radius: 7px; background-color: #fff;
+    }
+    #exchangeRate { width: 100px; }
+    input:focus, select:focus { outline: 2px solid #c08497; outline-offset: 1px; }
+    input[type="checkbox"] { width: 18px; height: 18px; accent-color: #9f3658; }
+    button { margin-top: 16px; padding: 10px 16px; cursor: pointer; border: 0; border-radius: 8px; background: #9f3658; color: white; font-weight: 600; }
+    button:hover { background: #812b48; }
+    a { color: #0369a1; }
+    @media (max-width: 760px) {
+      body { margin: 24px auto; padding: 0 12px; }
+      table { display: block; overflow-x: auto; white-space: nowrap; }
+    }
+  </style>
+</head>
+<body>
+  <h1>🇰🇷 待購清單</h1>
+  <p>勾選已購買的品項；清單會自動保存在這個瀏覽器中。</p>
+  <p>
+    換算匯率：1 台幣 =
+    <input id="exchangeRate" type="number" min="0" step="0.01" value="42" aria-label="每台幣可兌換的韓元數">
+    韓元
+  </p>
+  <p>
+    篩選類別：
+    <select id="categoryFilter" aria-label="依類別篩選">
+      <option value="">全部類別</option>
+    </select>
+  </p>
+  <table>
+    <thead>
+      <tr><th>已購買</th><th>品名</th><th>類別</th><th>台灣價格（NT$）</th><th>韓元價格（₩）</th><th>哪裡買</th><th>地圖連結</th><th>連結</th><th></th></tr>
+    </thead>
+    <tbody id="items"></tbody>
+  </table>
+  <button type="button" onclick="addItem()">＋ 新增品項</button>
+  <script>
+    const storageKey = 'korea-shopping-list';
+    const rateStorageKey = 'korea-shopping-list-krw-rate';
+    const categories = [
+      { name: '美/藥妝', color: '#f4a6b8' },
+      { name: '食物', color: '#ffd166' },
+      { name: '服飾/香氛', color: '#7ec8e3' },
+      { name: '伴手禮', color: '#95d5a4' },
+      { name: '其他', color: '#c3a6e8' }
+    ];
+    let items = JSON.parse(localStorage.getItem(storageKey) || '[]');
+    const rateInput = document.getElementById('exchangeRate');
+    const categoryFilter = document.getElementById('categoryFilter');
+    const filterCategories = [...new Set([
+      ...categories.map(category => category.name),
+      ...items.map(item => item.category).filter(Boolean)
+    ])];
+    filterCategories.forEach(category => {
+      const option = document.createElement('option');
+      option.value = category;
+      option.textContent = category;
+      categoryFilter.appendChild(option);
+    });
+    categoryFilter.addEventListener('change', render);
+    rateInput.value = localStorage.getItem(rateStorageKey) || '42';
+
+    function formatKrw(price) {
+      if (price === '' || rateInput.value === '' || !Number.isFinite(Number(price)) || !Number.isFinite(Number(rateInput.value))) return '—';
+      return `₩${Math.round(Number(price) * Number(rateInput.value)).toLocaleString('ko-KR')}`;
+    }
+
+    rateInput.addEventListener('input', () => {
+      localStorage.setItem(rateStorageKey, rateInput.value);
+      render();
+    });
+
+    function save() {
+      localStorage.setItem(storageKey, JSON.stringify(items));
+      render();
+    }
+
+    function addItem() {
+      items.push({ bought: false, name: '', category: '', price: '', store: '', address: '', url: '' });
+      save();
+    }
+
+    function updateItem(index, field, value) {
+      items[index][field] = value;
+      localStorage.setItem(storageKey, JSON.stringify(items));
+      if (field === 'url' || field === 'address') render();
+    }
+
+    function removeItem(index) {
+      items.splice(index, 1);
+      save();
+    }
+
+    function render() {
+      const tbody = document.getElementById('items');
+      tbody.innerHTML = '';
+      items.forEach((item, index) => {
+        if (categoryFilter.value && item.category !== categoryFilter.value) return;
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td><input type="checkbox" ${item.bought ? 'checked' : ''} aria-label="已購買"></td>
+          <td><input type="text" placeholder="例如：面膜" value="${escapeHtml(item.name)}"></td>
+          <td><select class="category-select" aria-label="類別">
+            <option value="">選擇類別</option>
+            ${categories.map(category => `<option value="${escapeHtml(category.name)}" style="background-color: ${category.color}">${escapeHtml(category.name)}</option>`).join('')}
+            ${item.category && !categories.some(category => category.name === item.category) ? `<option value="${escapeHtml(item.category)}">${escapeHtml(item.category)}</option>` : ''}
+          </select></td>
+          <td><input type="number" min="0" placeholder="例如：350" value="${escapeHtml(item.price)}"></td>
+          <td class="krw-price">${formatKrw(item.price)}</td>
+          <td><input type="text" placeholder="例如：明洞店" value="${escapeHtml(item.store || '')}"></td>
+          <td><input type="url" placeholder="貼上 Google 地圖連結" value="${escapeHtml(item.address || '')}">${isWebUrl(item.address) ? `<br><a href="${escapeHtml(item.address)}" target="_blank" rel="noopener noreferrer">開啟地圖</a>` : ''}</td>
+          <td><input type="url" placeholder="https://..." value="${escapeHtml(item.url)}">${isWebUrl(item.url) ? `<br><a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">開啟連結</a>` : ''}</td>
+          <td><button type="button" aria-label="刪除品項">刪除</button></td>`;
+        const inputs = row.querySelectorAll('input, select');
+        const categorySelect = inputs[2];
+        categorySelect.value = item.category || '';
+        updateCategoryColor(categorySelect);
+        inputs[0].addEventListener('change', event => updateItem(index, 'bought', event.target.checked));
+        inputs[1].addEventListener('input', event => updateItem(index, 'name', event.target.value));
+        categorySelect.addEventListener('change', event => {
+          updateItem(index, 'category', event.target.value);
+          updateCategoryColor(categorySelect);
+        });
+        inputs[3].addEventListener('input', event => {
+          updateItem(index, 'price', event.target.value);
+          row.querySelector('.krw-price').textContent = formatKrw(event.target.value);
+        });
+        inputs[4].addEventListener('input', event => updateItem(index, 'store', event.target.value));
+        inputs[5].addEventListener('change', event => updateItem(index, 'address', event.target.value));
+        inputs[6].addEventListener('change', event => updateItem(index, 'url', event.target.value));
+        row.querySelector('button').addEventListener('click', () => removeItem(index));
+        tbody.appendChild(row);
+      });
+    }
+
+    function updateCategoryColor(select) {
+      const category = categories.find(option => option.name === select.value);
+      select.style.backgroundColor = category ? category.color : (select.value ? '#e5e7eb' : '');
+    }
+
+    function isWebUrl(value) {
+      try {
+        return ['http:', 'https:'].includes(new URL(value).protocol);
+      } catch {
+        return false;
+      }
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, character => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      })[character]);
+    }
+
+    render();
+  </script>
+</body>
