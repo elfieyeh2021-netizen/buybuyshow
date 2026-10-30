@@ -34,9 +34,44 @@
     button { margin-top: 16px; padding: 10px 16px; cursor: pointer; border: 0; border-radius: 8px; background: #9f3658; color: white; font-weight: 600; }
     button:hover { background: #812b48; }
     a { color: #0369a1; }
+    /* 手機版：改成直向卡片，優先閱讀品名、類別與購買地點 */
     @media (max-width: 760px) {
-      body { margin: 24px auto; padding: 0 12px; }
-      table { display: block; overflow-x: auto; white-space: nowrap; }
+      body { margin: 18px auto; padding: 0 12px; }
+      h1 { font-size: 1.55rem; }
+      body > p { padding: 12px; }
+      #exchangeRate { width: 88px; }
+      table, tbody { display: block; width: 100%; }
+      table { border: 0; background: transparent; box-shadow: none; overflow: visible; }
+      thead { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+      tbody tr {
+        display: block; width: 100%; margin: 0 0 14px; padding: 10px 12px;
+        background: rgba(255,255,255,.94); border: 1px solid #e7e5e4;
+        border-radius: 14px; box-shadow: 0 4px 14px rgba(41,37,36,.06);
+      }
+      tbody td {
+        display: grid; grid-template-columns: 88px minmax(0, 1fr); align-items: start;
+        gap: 8px; width: 100%; padding: 8px 0; border-bottom: 1px solid #f0ece8;
+        white-space: normal; overflow-wrap: anywhere; text-align: left;
+      }
+      tbody td:last-child { border-bottom: 0; }
+      tbody td::before { color: #78716c; font-size: .86rem; font-weight: 700; line-height: 1.5; }
+      tbody td:nth-child(1)::before { content: '已購買'; }
+      tbody td:nth-child(2)::before { content: '品名'; color: #9f3658; }
+      tbody td:nth-child(3)::before { content: '類別'; }
+      tbody td:nth-child(4)::before { content: '台灣價格'; }
+      tbody td:nth-child(5)::before { content: '韓元價格'; }
+      tbody td:nth-child(6)::before { content: '哪裡買'; color: #9f3658; }
+      tbody td:nth-child(7)::before { content: '地圖'; }
+      tbody td:nth-child(8)::before { content: '商品連結'; }
+      tbody td:nth-child(9)::before { content: '操作'; }
+      tbody td:nth-child(2) input,
+      tbody td:nth-child(6) input { font-size: 1rem; font-weight: 600; min-height: 42px; }
+      tbody td:nth-child(3) select,
+      tbody td input, tbody td select { min-width: 0; width: 100%; font-size: 16px; padding: 10px; }
+      tbody td:nth-child(1) input[type="checkbox"] { width: 22px; height: 22px; }
+      tbody td:nth-child(7) a, tbody td:nth-child(8) a { display: inline-block; padding: 5px 0; }
+      tbody td:nth-child(9) button { margin-top: 0; }
+      #addItemButton { width: 100%; min-height: 46px; }
     }
   </style>
 </head>
@@ -60,7 +95,7 @@
     </thead>
     <tbody id="items"></tbody>
   </table>
-  <button type="button" onclick="addItem()">＋ 新增品項</button>
+  <button id="addItemButton" type="button">＋ 新增品項</button>
   <script>
     const storageKey = 'korea-shopping-list';
     const rateStorageKey = 'korea-shopping-list-krw-rate';
@@ -71,7 +106,41 @@
       { name: '伴手禮', color: '#95d5a4' },
       { name: '其他', color: '#c3a6e8' }
     ];
-    let items = JSON.parse(localStorage.getItem(storageKey) || '[]');
+    function readStorage(key, fallback = '') {
+      try {
+        return localStorage.getItem(key) ?? fallback;
+      } catch (error) {
+        console.warn('無法讀取瀏覽器儲存資料。', error);
+        return fallback;
+      }
+    }
+
+    function writeStorage(key, value) {
+      try {
+        localStorage.setItem(key, value);
+      } catch (error) {
+        console.warn('無法將資料儲存到瀏覽器。', error);
+      }
+    }
+
+    let items = [];
+    try {
+      const savedItems = JSON.parse(readStorage(storageKey, '[]'));
+      // 過濾損壞或空值資料，避免單筆資料讓整個清單無法 render。
+      items = Array.isArray(savedItems) ? savedItems
+        .filter(item => item && typeof item === 'object' && !Array.isArray(item))
+        .map(item => ({
+          bought: Boolean(item.bought),
+          name: String(item.name ?? ''),
+          category: String(item.category ?? ''),
+          price: item.price == null ? '' : String(item.price),
+          store: String(item.store ?? ''),
+          address: String(item.address ?? ''),
+          url: String(item.url ?? '')
+        })) : [];
+    } catch (error) {
+      console.warn('清單資料格式有誤，先以空清單顯示。', error);
+    }
     const rateInput = document.getElementById('exchangeRate');
     const categoryFilter = document.getElementById('categoryFilter');
     const filterCategories = [...new Set([
@@ -85,7 +154,7 @@
       categoryFilter.appendChild(option);
     });
     categoryFilter.addEventListener('change', render);
-    rateInput.value = localStorage.getItem(rateStorageKey) || '42';
+    rateInput.value = readStorage(rateStorageKey, '42') || '42';
 
     function formatKrw(price) {
       if (price === '' || rateInput.value === '' || !Number.isFinite(Number(price)) || !Number.isFinite(Number(rateInput.value))) return '—';
@@ -93,23 +162,42 @@
     }
 
     rateInput.addEventListener('input', () => {
-      localStorage.setItem(rateStorageKey, rateInput.value);
+      writeStorage(rateStorageKey, rateInput.value);
       render();
     });
 
     function save() {
-      localStorage.setItem(storageKey, JSON.stringify(items));
-      render();
+      // 儲存失敗時仍保留本次頁面中的清單，畫面操作不應因此中斷。
+      writeStorage(storageKey, JSON.stringify(items));
     }
 
     function addItem() {
-      items.push({ bought: false, name: '', category: '', price: '', store: '', address: '', url: '' });
-      save();
+      const newItem = { bought: false, name: '', category: '', price: '', store: '', address: '', url: '' };
+      items.push(newItem);
+      categoryFilter.value = '';
+      try {
+        render();
+        save();
+        const rows = document.querySelectorAll('#items tr');
+        const newRow = rows[rows.length - 1];
+        if (newRow) {
+          newRow.scrollIntoView({ behavior: 'auto', block: 'nearest' });
+          const nameInput = newRow.querySelector('input[type="text"]');
+          if (nameInput) nameInput.focus();
+        }
+      } catch (error) {
+        console.error('新增品項失敗：', error);
+        // 若舊資料或瀏覽器環境造成 render 失敗，至少保留新增列的基本畫面。
+        const tbody = document.getElementById('items');
+        const row = document.createElement('tr');
+        row.innerHTML = '<td><input type="checkbox" aria-label="已購買"></td><td><input type="text" placeholder="例如：面膜"></td><td></td><td><input type="number" min="0" placeholder="例如：350"></td><td>—</td><td><input type="text" placeholder="例如：明洞店"></td><td><input type="url" placeholder="貼上 Google 地圖連結"></td><td><input type="url" placeholder="https://..."></td><td></td>';
+        tbody.appendChild(row);
+      }
     }
 
     function updateItem(index, field, value) {
       items[index][field] = value;
-      localStorage.setItem(storageKey, JSON.stringify(items));
+      writeStorage(storageKey, JSON.stringify(items));
       if (field === 'url' || field === 'address') render();
     }
 
@@ -122,6 +210,7 @@
       const tbody = document.getElementById('items');
       tbody.innerHTML = '';
       items.forEach((item, index) => {
+        if (!item || typeof item !== 'object') return;
         if (categoryFilter.value && item.category !== categoryFilter.value) return;
         const row = document.createElement('tr');
         row.innerHTML = `
@@ -179,6 +268,7 @@
       })[character]);
     }
 
+    document.getElementById('addItemButton').addEventListener('click', addItem);
     render();
   </script>
 </body>
